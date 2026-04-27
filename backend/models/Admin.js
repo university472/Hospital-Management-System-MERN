@@ -1,21 +1,57 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
+// const mongoose = require('mongoose');
+// const bcrypt = require('bcrypt');
 
-const adminSchema = new mongoose.Schema({
-  firstName: { type: String, required: true },
-  lastName: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  role: { type: String, default: 'admin' }
-});
+// const adminSchema = new mongoose.Schema({
+//   firstName: { type: String, required: true },
+//   lastName: { type: String, required: true },
+//   email: { type: String, required: true, unique: true },
+//   password: { type: String, required: true },
+//   role: { type: String, default: 'admin' }
+// });
+
+// adminSchema.pre('save', async function (next) {
+//   if (!this.isModified('password')) return next();
+//   const salt = await bcrypt.genSalt(10);
+//   this.password = await bcrypt.hash(this.password, salt);
+//   next();
+// });
+
+// const Admin = mongoose.model('Admin', adminSchema);
+
+// module.exports = Admin;
+
+const mongoose = require('mongoose')
+const bcrypt = require('bcrypt')
+
+const adminSchema = new mongoose.Schema(
+  {
+    firstName: { type: String, required: true, trim: true },
+    lastName: { type: String, required: true, trim: true },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true
+    },
+    password: { type: String, required: true, minlength: 8 },
+    role: { type: String, default: 'admin' }
+  },
+  { timestamps: true }
+)
 
 adminSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
+  if (!this.isModified('password')) return next()
+  const salt = await bcrypt.genSalt(12)
+  this.password = await bcrypt.hash(this.password, salt)
+  next()
+})
 
-const Admin = mongoose.model('Admin', adminSchema);
+adminSchema.methods.toJSON = function () {
+  const obj = this.toObject()
+  delete obj.password
+  return obj
+}
 
-module.exports = Admin;
+const Admin = mongoose.model('Admin', adminSchema)
+module.exports = Admin

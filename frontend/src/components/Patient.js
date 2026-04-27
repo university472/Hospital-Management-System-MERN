@@ -1,318 +1,626 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, FileText, User, Users, ChevronDown, Home, UserCircle, Calendar as CalendarIcon, Eye, EyeOff, Hospital } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  Calendar,
+  FileText,
+  Users,
+  ChevronDown,
+  Home,
+  UserCircle,
+  CalendarDays,
+  Upload,
+  History,
+  Hospital,
+  Stethoscope,
+  TicketCheck,
+  AlertCircle,
+  Search,
+  X,
+  XCircle,
+  Lock,
+  Printer,
+  Activity
+} from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
+import api, { ApiError } from '../utils/api'
 
-const Button = ({ children, variant = 'primary', className = '', ...props }) => (
+// ── UI primitives ─────────────────────────────────────────────────────────────
+const Btn = ({
+  children,
+  variant = 'primary',
+  className = '',
+  disabled,
+  ...props
+}) => (
   <button
-    className={`inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-      variant === 'primary'
-        ? 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-        : variant === 'outline'
-        ? 'text-blue-600 border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
-        : 'text-blue-600 border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
-    } ${className}`}
+    disabled={disabled}
+    className={`inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md shadow-sm
+      transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50
+      ${
+        variant === 'primary'
+          ? 'text-white bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+          : variant === 'danger'
+            ? 'text-white bg-red-600 hover:bg-red-700 focus:ring-red-500'
+            : variant === 'success'
+              ? 'text-white bg-green-600 hover:bg-green-700 focus:ring-green-500'
+              : 'text-blue-600 border border-blue-600 hover:bg-blue-50 focus:ring-blue-500'
+      } ${className}`}
     {...props}
   >
     {children}
   </button>
-);
-
-
+)
 const Card = ({ children, className = '' }) => (
-  <div className={`bg-white rounded-lg shadow-md ${className}`}>
-    {children}
-  </div>
-);
-
+  <div className={`bg-white rounded-lg shadow-md ${className}`}>{children}</div>
+)
 const CardHeader = ({ children, icon: Icon }) => (
   <div className="px-4 py-5 border-b border-gray-200 sm:px-6 flex items-center justify-between">
     {children}
     {Icon && <Icon className="h-5 w-5 text-blue-600 ml-2" />}
   </div>
-);
-
+)
 const CardTitle = ({ children }) => (
   <h3 className="text-lg leading-6 font-medium text-gray-900">{children}</h3>
-);
-
+)
 const CardContent = ({ children }) => (
   <div className="px-4 py-5 sm:p-6">{children}</div>
-);
-
+)
 const CardFooter = ({ children }) => (
   <div className="px-4 py-4 sm:px-6">{children}</div>
-);
-
-const Input = ({ ...props }) => (
+)
+const Input = (props) => (
   <input
-    className="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md px-1 h-6"
+    className="mt-1 focus:ring-blue-500 focus:border-blue-500 block w-full shadow-sm sm:text-sm border border-gray-300 rounded-md px-3 py-2"
     {...props}
   />
-);
-
+)
 const Label = ({ children, htmlFor }) => (
   <label htmlFor={htmlFor} className="block text-sm font-medium text-gray-700">
     {children}
   </label>
-);
-
+)
 const Select = ({ children, ...props }) => (
   <select
-    className="mt-1 block w-full pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+    className="mt-1 block w-full pr-10 py-2 px-3 text-base border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
     {...props}
   >
     {children}
   </select>
-);
+)
+const Alert = ({ children, type = 'info' }) => (
+  <div
+    className={`flex items-start gap-2 p-3 rounded-md text-sm ${type === 'success' ? 'bg-green-50 text-green-800' : type === 'error' ? 'bg-red-50 text-red-800' : 'bg-blue-50 text-blue-800'}`}
+  >
+    <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+    {children}
+  </div>
+)
+
+// ── Print prescription slip (opens browser print dialog) ─────────────────────
+function printPrescriptions(patient, doctor, rxList, date) {
+  const lines = rxList
+    .map(
+      (rx, i) =>
+        `<tr><td>${i + 1}</td><td><strong>${rx.medication}</strong></td><td>${rx.dosage}</td><td>${rx.frequency}</td><td>${rx.notes || '—'}</td></tr>`
+    )
+    .join('')
+
+  const html = `<!DOCTYPE html><html><head><title>Prescription</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:30px;color:#111}
+    h2{color:#1d4ed8;margin-bottom:2px}
+    .meta{color:#555;font-size:13px;margin-bottom:20px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{background:#1d4ed8;color:#fff;padding:8px;text-align:left}
+    td{padding:8px;border-bottom:1px solid #ddd}
+    tr:last-child td{border-bottom:none}
+    .footer{margin-top:40px;font-size:12px;color:#888;border-top:1px solid #ccc;padding-top:10px}
+    @media print{body{margin:0}}
+  </style></head><body>
+  <h2>🏥 Hospital Management System</h2>
+  <div class="meta">
+    <strong>Patient:</strong> ${patient?.firstName} ${patient?.lastName} &nbsp;|&nbsp;
+    <strong>Doctor:</strong> ${doctor || 'N/A'} &nbsp;|&nbsp;
+    <strong>Date:</strong> ${date || new Date().toLocaleDateString('en-GB')}
+  </div>
+  <table>
+    <thead><tr><th>#</th><th>Medication</th><th>Dosage</th><th>Frequency</th><th>Notes</th></tr></thead>
+    <tbody>${lines}</tbody>
+  </table>
+  <div class="footer">Generated by HMS &bull; ${new Date().toLocaleString()}</div>
+  </body></html>`
+
+  const win = window.open('', '_blank', 'width=800,height=600')
+  win.document.write(html)
+  win.document.close()
+  win.focus()
+  setTimeout(() => win.print(), 400)
+}
+
+const TABS = [
+  { id: 'Dashboard', icon: Home, label: 'Dashboard' },
+  { id: 'Profile', icon: UserCircle, label: 'Profile' },
+  { id: 'Book', icon: CalendarDays, label: 'Book Appointment' },
+  { id: 'History', icon: History, label: 'My History' },
+  { id: 'Security', icon: Lock, label: 'Security' }
+]
 
 export default function PatientDashboard() {
-  const [showAppointments, setShowAppointments] = useState(false);
-  const [showPrescriptions, setShowPrescriptions] = useState(false);
-  const [activeTab, setActiveTab] = useState('Dashboard');
-  const [isEditing, setIsEditing] = useState(false);
-  const [patientInfo, setPatientInfo] = useState(null);
-  const [editedInfo, setEditedInfo] = useState(null);
-  const [doctors, setDoctors] = useState([]);
-  const [appointmentData, setAppointmentData] = useState({
+  const navigate = useNavigate()
+  const { logout } = useAuth()
+
+  const [activeTab, setActiveTab] = useState('Dashboard')
+  const [patientInfo, setPatientInfo] = useState(null)
+  const [editedInfo, setEditedInfo] = useState(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [doctors, setDoctors] = useState([])
+  const [appointments, setAppointments] = useState([])
+  const [allAppts, setAllAppts] = useState([])
+  const [careTeam, setCareTeam] = useState([])
+  const [prescriptions, setPrescriptions] = useState([])
+  const [medRecords, setMedRecords] = useState([])
+  const [stats, setStats] = useState(null)
+  const [showAppts, setShowAppts] = useState(false)
+  const [showRx, setShowRx] = useState(false)
+  const [msg, setMsg] = useState({ text: '', type: '' })
+
+  // Book
+  const [bookData, setBookData] = useState({
     doctorId: '',
     date: '',
-    time: '',
+    queueNumber: '',
+    estimatedTime: '',
+    tokenCode: '',
     reason: ''
-  });
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [appointments, setAppointments] = useState([]);
-  const [careTeam, setCareTeam] = useState([]);
-  const [prescriptions, setPrescriptions] = useState([]);
-  const navigate = useNavigate();
+  })
+  const [slots, setSlots] = useState([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [bookedToken, setBookedToken] = useState(null)
+  const [queueStatus, setQueueStatus] = useState(null)
+
+  // Doctor search
+  const [searchQ, setSearchQ] = useState('')
+  const [searchSpecialty, setSearchSpecialty] = useState('')
+  const [filteredDoctors, setFilteredDoctors] = useState([])
+  const searchTimer = useRef(null)
+
+  // Upload
+  const [uploadApptId, setUploadApptId] = useState('')
+  const [uploadFiles, setUploadFiles] = useState([])
+
+  // Password change
+  const [pwForm, setPwForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+  const [pwMsg, setPwMsg] = useState({ text: '', type: '' })
+  const [pwLoading, setPwLoading] = useState(false)
+  const [showPw, setShowPw] = useState({
+    current: false,
+    new: false,
+    confirm: false
+  })
+
+  const showMsg = (text, type = 'info') => {
+    setMsg({ text, type })
+    setTimeout(() => setMsg({ text: '', type: '' }), 4000)
+  }
+
+  const load = useCallback(async () => {
+    try {
+      const [profile, docs, todayAppts, allA, team, rxs, recs, patStats] =
+        await Promise.all([
+          api.get('/api/patient/profile'),
+          api.get('/api/doctor/all'),
+          api.get('/api/patient/appointments'),
+          api.get('/api/patient/appointments/all'),
+          api.get('/api/patient/care-team'),
+          api.get('/api/patient/prescriptions'),
+          api.get('/api/patient/medical-records'),
+          api.get('/api/patient/stats')
+        ])
+      setPatientInfo(profile)
+      setEditedInfo(profile)
+      setDoctors(docs)
+      setFilteredDoctors(docs)
+      setAppointments(todayAppts)
+      setAllAppts(allA)
+      setCareTeam(team)
+      setPrescriptions(rxs)
+      setMedRecords(recs)
+      setStats(patStats)
+    } catch (err) {
+      console.error(err)
+    }
+  }, [])
 
   useEffect(() => {
-    fetchPatientProfile();
-    fetchDoctors();
-    fetchAppointments();
-    fetchCareTeam();
-    fetchPrescriptions();
-  }, []);
+    load()
+  }, [load])
 
-  const fetchPatientProfile = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch('http://localhost:5000/api/patient/profile', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPatientInfo(data);
-        setEditedInfo(data);
-      } else {
-        console.error('Failed to fetch patient profile');
-      }
-    } catch (error) {
-      console.error('Error fetching patient profile:', error);
+  // Live doctor search with debounce
+  useEffect(() => {
+    clearTimeout(searchTimer.current)
+    if (!searchQ && !searchSpecialty) {
+      setFilteredDoctors(doctors)
+      return
     }
-  };
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams()
+        if (searchQ) params.append('q', searchQ)
+        if (searchSpecialty) params.append('specialty', searchSpecialty)
+        if (bookData.date) params.append('date', bookData.date)
+        const res = await api.get(`/api/patient/doctors/search?${params}`)
+        setFilteredDoctors(res)
+      } catch {
+        setFilteredDoctors(doctors)
+      }
+    }, 350)
+    return () => clearTimeout(searchTimer.current)
+  }, [searchQ, searchSpecialty, bookData.date, doctors])
 
-  const fetchDoctors = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch('http://localhost:5000/api/doctor/all', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDoctors(data);
-      } else {
-        console.error('Failed to fetch doctors');
-      }
-    } catch (error) {
-      console.error('Error fetching doctors:', error);
+  // Slots
+  useEffect(() => {
+    if (!bookData.doctorId || !bookData.date) {
+      setSlots([])
+      return
     }
-  };
+    setLoadingSlots(true)
+    api
+      .get(
+        `/api/patient/available-slots?doctorId=${bookData.doctorId}&date=${bookData.date}`
+      )
+      .then(setSlots)
+      .catch(() => setSlots([]))
+      .finally(() => setLoadingSlots(false))
+  }, [bookData.doctorId, bookData.date])
 
-  const fetchAvailableSlots = async (doctorId, date) => {
-    if (!doctorId || !date) return;
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/patient/available-slots?doctorId=${doctorId}&date=${date}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const slots = await response.json();
-        setAvailableSlots(slots);
-      } else {
-        console.error('Failed to fetch available slots');
-      }
-    } catch (error) {
-      console.error('Error fetching available slots:', error);
+  // Queue status for today
+  useEffect(() => {
+    const todayAppt = appointments[0]
+    if (!todayAppt) return
+    api
+      .get(`/api/patient/queue-status/${todayAppt._id}`)
+      .then(setQueueStatus)
+      .catch(() => {})
+  }, [appointments])
+
+  const handleBookChange = (e) => {
+    const { name, value } = e.target
+    if (name === 'slot') {
+      const slot = slots.find((s) => s.queueNumber === parseInt(value))
+      if (slot)
+        setBookData((p) => ({
+          ...p,
+          queueNumber: slot.queueNumber,
+          estimatedTime: slot.estimatedTime,
+          tokenCode: slot.tokenCode
+        }))
+    } else {
+      setBookData((p) => ({ ...p, [name]: value }))
     }
-  };
+  }
 
-  const fetchAppointments = async () => {
+  const handleBook = async (e) => {
+    e.preventDefault()
+    if (!bookData.queueNumber)
+      return showMsg('Please select a time slot', 'error')
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch('http://localhost:5000/api/patient/appointments', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Fetched appointments:', data); // Add this line for debugging
-        setAppointments(data);
-      } else {
-        console.error('Failed to fetch appointments');
-      }
-    } catch (error) {
-      console.error('Error fetching appointments:', error);
+      const res = await api.post('/api/patient/book-appointment', bookData)
+      setBookedToken(res.queueInfo)
+      showMsg('Appointment booked!', 'success')
+      setBookData({
+        doctorId: '',
+        date: '',
+        queueNumber: '',
+        estimatedTime: '',
+        tokenCode: '',
+        reason: ''
+      })
+      setSlots([])
+      load()
+    } catch (err) {
+      showMsg(err.message, 'error')
     }
-  };
+  }
 
-  const fetchCareTeam = async () => {
+  const handleCancelAppt = async (apptId) => {
+    if (!window.confirm('Are you sure you want to cancel this appointment?'))
+      return
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch('http://localhost:5000/api/patient/care-team', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setCareTeam(data);
-      } else {
-        console.error('Failed to fetch care team');
-      }
-    } catch (error) {
-      console.error('Error fetching care team:', error);
+      await api.patch(`/api/patient/appointments/${apptId}/cancel`, {})
+      showMsg('Appointment cancelled', 'success')
+      load()
+    } catch (err) {
+      showMsg(err.message, 'error')
     }
-  };
+  }
 
-  const fetchPrescriptions = async () => {
+  const handleUpload = async (e) => {
+    e.preventDefault()
+    if (!uploadApptId || uploadFiles.length === 0)
+      return showMsg('Select an appointment and files', 'error')
+    const form = new FormData()
+    Array.from(uploadFiles).forEach((f) => form.append('reports', f))
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-      const response = await fetch('http://localhost:5000/api/patient/prescriptions', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPrescriptions(data);
-      } else {
-        console.error('Failed to fetch prescriptions');
-      }
-    } catch (error) {
-      console.error('Error fetching prescriptions:', error);
+      await api.upload(`/api/patient/upload-report/${uploadApptId}`, form)
+      showMsg('Reports uploaded!', 'success')
+      setUploadFiles([])
+      setUploadApptId('')
+      load()
+    } catch (err) {
+      showMsg(err.message, 'error')
     }
-  };
+  }
 
+  const handleSaveProfile = async () => {
+    try {
+      await api.put('/api/patient/profile', editedInfo)
+      setPatientInfo(editedInfo)
+      setIsEditing(false)
+      showMsg('Profile updated', 'success')
+    } catch (err) {
+      showMsg(err.message, 'error')
+    }
+  }
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault()
+    if (pwForm.newPassword !== pwForm.confirmPassword)
+      return setPwMsg({ text: "Passwords don't match", type: 'error' })
+    setPwLoading(true)
+    try {
+      const res = await api.post('/api/password/change', {
+        currentPassword: pwForm.currentPassword,
+        newPassword: pwForm.newPassword,
+        confirmPassword: pwForm.confirmPassword
+      })
+      setPwMsg({ text: res.message, type: 'success' })
+      setPwForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+      setTimeout(() => {
+        logout()
+        navigate('/login')
+      }, 2000)
+    } catch (err) {
+      setPwMsg({ text: err.message, type: 'error' })
+    } finally {
+      setPwLoading(false)
+    }
+  }
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────
   const renderDashboard = () => (
     <>
+      {/* Stats row */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          {[
+            {
+              label: 'Total Visits',
+              value: stats.completedVisits,
+              icon: Activity,
+              color: 'blue'
+            },
+            {
+              label: 'Upcoming',
+              value: stats.upcomingCount,
+              icon: Calendar,
+              color: 'green'
+            },
+            {
+              label: 'Doctors Seen',
+              value: stats.doctorsSeenCount,
+              icon: Stethoscope,
+              color: 'purple'
+            },
+            {
+              label: 'Prescriptions',
+              value: stats.totalPrescriptions,
+              icon: FileText,
+              color: 'orange'
+            }
+          ].map((s) => (
+            <Card key={s.label}>
+              <CardContent>
+                <p className="text-xs text-gray-500">{s.label}</p>
+                <p className="text-3xl font-bold">{s.value}</p>
+                {s.label === 'Doctors Seen' && stats.lastVisit && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Last: {stats.lastVisit.doctor}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Queue status banner */}
+      {queueStatus &&
+        !['completed', 'cancelled', 'no-show'].includes(queueStatus.status) && (
+          <div className="mb-6 bg-green-50 border border-green-200 rounded-xl p-5 flex flex-wrap gap-6 items-center">
+            <div className="text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">
+                Your Token
+              </p>
+              <p className="text-4xl font-black text-blue-700">
+                {queueStatus.myTokenCode}
+              </p>
+              <p className="text-sm text-gray-500">
+                Queue #{queueStatus.myQueueNumber}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">
+                Est. Time
+              </p>
+              <p className="text-2xl font-bold text-gray-800">
+                {queueStatus.estimatedTime}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">
+                Patients Ahead
+              </p>
+              <p className="text-2xl font-bold text-orange-600">
+                {queueStatus.patientsAhead}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">
+                Currently Serving
+              </p>
+              <p className="text-2xl font-bold text-green-700">
+                #{queueStatus.currentlyServing}
+              </p>
+            </div>
+            {queueStatus.visitType === 'follow-up' && (
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${queueStatus.isFree ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}
+              >
+                {queueStatus.isFree
+                  ? '✓ FREE Follow-up'
+                  : `${queueStatus.discountApplied}% Follow-up Discount`}
+              </span>
+            )}
+          </div>
+        )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Today's appointments */}
         <Card>
           <CardHeader icon={Calendar}>
-            <CardTitle className="text-sm font-medium">Today's Appointments</CardTitle>
+            <CardTitle>Today's Appointments</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              {appointments.length}
-            </div>
-            {appointments.length > 0 ? (
+            <div className="text-2xl font-bold">{appointments.length}</div>
+            {appointments[0] ? (
               <p className="text-xs text-gray-500">
-                Next: Dr. {appointments[0].doctorId.firstName} {appointments[0].doctorId.lastName} at {appointments[0].time}
+                Next: Dr. {appointments[0].doctorId?.firstName}{' '}
+                {appointments[0].doctorId?.lastName} at{' '}
+                {appointments[0].estimatedTime}
               </p>
             ) : (
-              <p className="text-xs text-gray-500">
-                No appointments today
-              </p>
+              <p className="text-xs text-gray-500">No appointments today</p>
             )}
           </CardContent>
-          <CardFooter className="p-2">
-            <Button 
-              variant="ghost" 
-              className="w-full text-sm text-gray-500 hover:text-gray-900 transition-colors"
-              onClick={() => setShowAppointments(!showAppointments)}
+          <CardFooter>
+            <Btn
+              variant="outline"
+              className="w-full"
+              onClick={() => setShowAppts(!showAppts)}
             >
-              {showAppointments ? "Hide" : "View"} Today's Appointments
-              <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${showAppointments ? "rotate-180" : ""}`} />
-            </Button>
+              {showAppts ? 'Hide' : 'View'} Today's Appointments
+              <ChevronDown
+                className={`h-4 w-4 ml-2 transition-transform ${showAppts ? 'rotate-180' : ''}`}
+              />
+            </Btn>
           </CardFooter>
-          {showAppointments && (
-            <div className="px-4 pb-4">
-              {appointments.length > 0 ? (
-                appointments.map((appointment, index) => (
-                  <div key={index} className="flex justify-between items-center py-2 border-t">
+          {showAppts && (
+            <div className="px-4 pb-4 space-y-2">
+              {appointments.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-2">
+                  No appointments today
+                </p>
+              ) : (
+                appointments.map((a, i) => (
+                  <div
+                    key={i}
+                    className="flex justify-between items-center py-2 border-t"
+                  >
                     <div>
                       <p className="text-sm font-medium">
-                        Dr. {appointment.doctorId.firstName} {appointment.doctorId.lastName}
+                        Dr. {a.doctorId?.firstName} {a.doctorId?.lastName}
                       </p>
-                      <p className="text-xs text-gray-500">
-                        {appointment.reason}
-                      </p>
+                      <p className="text-xs text-gray-500">{a.reason}</p>
                     </div>
-                    <p className="text-sm">{appointment.time}</p>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-blue-700">
+                        {a.tokenCode}
+                      </p>
+                      <p className="text-xs text-gray-500">{a.estimatedTime}</p>
+                      {['scheduled', 'waiting'].includes(a.status) && (
+                        <button
+                          onClick={() => handleCancelAppt(a._id)}
+                          className="text-xs text-red-500 hover:underline mt-1"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))
-              ) : (
-                <p className="text-sm text-gray-500 text-center py-4">
-                  No appointments scheduled for today
-                </p>
               )}
             </div>
           )}
         </Card>
+
+        {/* Prescriptions */}
         <Card>
           <CardHeader icon={FileText}>
-            <CardTitle className="text-sm font-medium">Prescriptions</CardTitle>
+            <CardTitle>Prescriptions</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{prescriptions.length}</div>
             <p className="text-xs text-gray-500">Active prescriptions</p>
           </CardContent>
-          <CardFooter className="p-2">
-            <Button 
-              variant="ghost" 
-              className="w-full text-sm text-gray-500 hover:text-gray-900 transition-colors"
-              onClick={() => setShowPrescriptions(!showPrescriptions)}
+          <CardFooter>
+            <Btn
+              variant="outline"
+              className="w-full"
+              onClick={() => setShowRx(!showRx)}
             >
-              {showPrescriptions ? "Hide" : "View All"} Prescriptions
-              <ChevronDown className={`h-4 w-4 ml-2 transition-transform ${showPrescriptions ? "rotate-180" : ""}`} />
-            </Button>
+              {showRx ? 'Hide' : 'View All'} Prescriptions
+              <ChevronDown
+                className={`h-4 w-4 ml-2 transition-transform ${showRx ? 'rotate-180' : ''}`}
+              />
+            </Btn>
           </CardFooter>
-          {showPrescriptions && (
-            <div className="px-4 pb-4">
-              {prescriptions.map((prescription, index) => (
-                <div key={index} className="py-2 border-t">
-                  <p className="text-sm font-medium">{prescription.medication}</p>
+          {showRx && (
+            <div className="px-4 pb-4 space-y-2">
+              {prescriptions.length > 0 && (
+                <div className="flex justify-end mb-2">
+                  <Btn
+                    variant="outline"
+                    className="text-xs"
+                    onClick={() => {
+                      const grouped = {}
+                      prescriptions.forEach((rx) => {
+                        const key = `${rx.doctorId?._id}`
+                        if (!grouped[key])
+                          grouped[key] = {
+                            doctor: `Dr. ${rx.doctorId?.firstName} ${rx.doctorId?.lastName}`,
+                            rxs: []
+                          }
+                        grouped[key].rxs.push(rx)
+                      })
+                      const first = Object.values(grouped)[0]
+                      if (first)
+                        printPrescriptions(
+                          patientInfo,
+                          first.doctor,
+                          first.rxs,
+                          new Date().toLocaleDateString('en-GB')
+                        )
+                    }}
+                  >
+                    <Printer className="h-3 w-3 mr-1" /> Print
+                  </Btn>
+                </div>
+              )}
+              {prescriptions.map((rx, i) => (
+                <div key={i} className="py-2 border-t">
+                  <p className="text-sm font-medium">{rx.medication}</p>
                   <p className="text-xs text-gray-500">
-                    {prescription.dosage} - {prescription.frequency}
+                    {rx.dosage} — {rx.frequency}
                   </p>
+                  {rx.notes && (
+                    <p className="text-xs text-gray-400 italic">{rx.notes}</p>
+                  )}
                   <p className="text-xs text-gray-500">
-                    Prescribed by: Dr. {prescription.doctorId.firstName} {prescription.doctorId.lastName}
+                    By Dr. {rx.doctorId?.firstName} {rx.doctorId?.lastName}
                   </p>
                 </div>
               ))}
@@ -320,38 +628,33 @@ export default function PatientDashboard() {
           )}
         </Card>
       </div>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      {/* Care Team */}
+      <div className="mt-6">
         <Card>
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2">
-              <li className="flex items-center space-x-2">
-                <Clock className="h-4 w-4 text-blue-600" />
-                <span>Blood test results collected</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <User className="h-4 w-4 text-blue-600" />
-                <span>Appointment with Dr. Johnson completed</span>
-              </li>
-              <li className="flex items-center space-x-2">
-                <FileText className="h-4 w-4 text-blue-600" />
-                <span>New prescription added</span>
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
+          <CardHeader icon={Users}>
             <CardTitle>Your Care Team</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
-              {careTeam.map((member, index) => (
-                <li key={index} className="flex items-center space-x-2">
-                  <Users className="h-4 w-4 text-blue-600" />
-                  <span>Dr. {member.firstName} {member.lastName} - {member.specialty}</span>
+              {careTeam.length === 0 && (
+                <li className="text-gray-500 text-sm">
+                  No doctors assigned yet
+                </li>
+              )}
+              {careTeam.map((m, i) => (
+                <li key={i} className="flex items-center justify-between py-1">
+                  <div className="flex items-center gap-2">
+                    <Stethoscope className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm">
+                      Dr. {m.firstName} {m.lastName} — {m.specialty}
+                    </span>
+                  </div>
+                  {m.phoneNumber && (
+                    <span className="text-xs text-gray-400">
+                      {m.phoneNumber}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -359,227 +662,569 @@ export default function PatientDashboard() {
         </Card>
       </div>
     </>
-  );
+  )
 
-  const renderProfile = () => {
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setEditedInfo(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSave = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/patient/profile', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(editedInfo)
-        });
-        if (response.ok) {
-          const updatedProfile = await response.json();
-          setPatientInfo(updatedProfile);
-          setIsEditing(false);
-        } else {
-          const errorData = await response.json();
-          alert(`Failed to update patient profile: ${errorData.error}`);
-        }
-      } catch (error) {
-        alert('Error updating patient profile. Please try again.');
-      }
-    };
-
-    return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
+  const renderProfile = () => (
+    <Card className="w-full max-w-2xl mx-auto">
+      <CardHeader>
+        <CardTitle>My Profile</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              ['firstName', 'First Name'],
+              ['lastName', 'Last Name']
+            ].map(([key, lbl]) => (
+              <div key={key}>
+                <Label htmlFor={key}>{lbl}</Label>
                 <Input
-                  id="firstName"
-                  name="firstName"
-                  value={isEditing ? editedInfo.firstName : patientInfo?.firstName}
-                  onChange={handleInputChange}
+                  id={key}
+                  value={
+                    isEditing
+                      ? editedInfo?.[key] || ''
+                      : patientInfo?.[key] || ''
+                  }
+                  onChange={(e) =>
+                    setEditedInfo((p) => ({ ...p, [key]: e.target.value }))
+                  }
                   readOnly={!isEditing}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  name="lastName"
-                  value={isEditing ? editedInfo.lastName : patientInfo?.lastName}
-                  onChange={handleInputChange}
-                  readOnly={!isEditing}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+            ))}
+          </div>
+          <div>
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={
+                isEditing ? editedInfo?.email || '' : patientInfo?.email || ''
+              }
+              onChange={(e) =>
+                setEditedInfo((p) => ({ ...p, email: e.target.value }))
+              }
+              readOnly={!isEditing}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="phone">Phone</Label>
               <Input
-                id="email"
-                name="email"
-                type="email"
-                value={isEditing ? editedInfo.email : patientInfo?.email}
-                onChange={handleInputChange}
+                id="phone"
+                value={
+                  isEditing ? editedInfo?.phone || '' : patientInfo?.phone || ''
+                }
+                onChange={(e) =>
+                  setEditedInfo((p) => ({ ...p, phone: e.target.value }))
+                }
                 readOnly={!isEditing}
               />
             </div>
-          </form>
-        </CardContent>
-        <CardFooter>
-          {isEditing ? (
-            <>
-              <Button onClick={handleSave} className="mr-2">Save</Button>
-              <Button onClick={() => setIsEditing(false)} variant="outline">Cancel</Button>
-            </>
-          ) : (
-            <Button onClick={() => setIsEditing(true)} className="ml-auto">Edit Profile</Button>
+            <div>
+              <Label htmlFor="bloodGroup">Blood Group</Label>
+              <Input
+                id="bloodGroup"
+                value={
+                  isEditing
+                    ? editedInfo?.bloodGroup || ''
+                    : patientInfo?.bloodGroup || ''
+                }
+                onChange={(e) =>
+                  setEditedInfo((p) => ({ ...p, bloodGroup: e.target.value }))
+                }
+                readOnly={!isEditing}
+              />
+            </div>
+          </div>
+          {isEditing && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Gender</Label>
+                <Select
+                  value={editedInfo?.gender || ''}
+                  onChange={(e) =>
+                    setEditedInfo((p) => ({ ...p, gender: e.target.value }))
+                  }
+                >
+                  <option value="">Select</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="dob">Date of Birth</Label>
+                <Input
+                  id="dob"
+                  type="date"
+                  value={
+                    editedInfo?.dateOfBirth
+                      ? editedInfo.dateOfBirth.slice(0, 10)
+                      : ''
+                  }
+                  onChange={(e) =>
+                    setEditedInfo((p) => ({
+                      ...p,
+                      dateOfBirth: e.target.value
+                    }))
+                  }
+                />
+              </div>
+            </div>
           )}
-        </CardFooter>
-      </Card>
-    );
-  };
+          {msg.text && <Alert type={msg.type}>{msg.text}</Alert>}
+        </div>
+      </CardContent>
+      <CardFooter>
+        {isEditing ? (
+          <>
+            <Btn onClick={handleSaveProfile} className="mr-2">
+              Save
+            </Btn>
+            <Btn variant="outline" onClick={() => setIsEditing(false)}>
+              Cancel
+            </Btn>
+          </>
+        ) : (
+          <Btn onClick={() => setIsEditing(true)} className="ml-auto">
+            Edit Profile
+          </Btn>
+        )}
+      </CardFooter>
+    </Card>
+  )
 
-  const renderAppointmentBooking = () => {
-    const handleInputChange = (e) => {
-      const { name, value } = e.target;
-      setAppointmentData(prev => ({ ...prev, [name]: value }));
+  const renderBook = () => (
+    <div className="space-y-6 max-w-2xl mx-auto">
+      {bookedToken && (
+        <Card className="border-2 border-green-400">
+          <CardContent>
+            <div className="text-center space-y-2">
+              <TicketCheck className="h-10 w-10 text-green-500 mx-auto" />
+              <h3 className="text-xl font-bold text-green-700">
+                Appointment Confirmed!
+              </h3>
+              <p className="text-5xl font-black text-blue-700">
+                {bookedToken.tokenCode}
+              </p>
+              <p className="text-gray-600">
+                Queue #{bookedToken.queueNumber} — Est. time:{' '}
+                <strong>{bookedToken.estimatedTime}</strong>
+              </p>
+              {bookedToken.isFree && (
+                <span className="inline-block bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">
+                  FREE Follow-up Visit
+                </span>
+              )}
+              {!bookedToken.isFree && bookedToken.discountApplied > 0 && (
+                <span className="inline-block bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                  {bookedToken.discountApplied}% Follow-up Discount Applied
+                </span>
+              )}
+              <Btn
+                onClick={() => setBookedToken(null)}
+                variant="outline"
+                className="mt-3"
+              >
+                Book Another
+              </Btn>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      if (name === 'date' || name === 'doctorId') {
-        fetchAvailableSlots(appointmentData.doctorId, value);
-      }
-    };
+      {!bookedToken && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Book an Appointment</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {msg.text && (
+              <div className="mb-4">
+                <Alert type={msg.type}>{msg.text}</Alert>
+              </div>
+            )}
 
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/patient/book-appointment', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(appointmentData)
-        });
-        if (response.ok) {
-          const result = await response.json();
-          alert('Appointment booked successfully');
-          setAppointmentData({
-            doctorId: '',
-            date: '',
-            time: '',
-            reason: ''
-          });
-          setAvailableSlots([]);
-        } else {
-          const errorData = await response.json();
-          alert(`Failed to book appointment: ${errorData.error}`);
-        }
-      } catch (error) {
-        alert('Error booking appointment. Please try again.');
-      }
-    };
+            {/* Doctor search bar */}
+            <div className="mb-4 space-y-2">
+              <Label>Search Doctor</Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    value={searchQ}
+                    onChange={(e) => setSearchQ(e.target.value)}
+                    placeholder="Search by name or specialty..."
+                    className="mt-1 pl-9 pr-3 py-2 border border-gray-300 rounded-md w-full text-sm focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  {searchQ && (
+                    <button
+                      onClick={() => setSearchQ('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2"
+                    >
+                      <X className="h-4 w-4 text-gray-400" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
-    return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Book an Appointment</CardTitle>
+            <form onSubmit={handleBook} className="space-y-4">
+              <div>
+                <Label htmlFor="doctorId">Select Doctor</Label>
+                <Select
+                  id="doctorId"
+                  name="doctorId"
+                  value={bookData.doctorId}
+                  onChange={handleBookChange}
+                  required
+                >
+                  <option value="">Choose a doctor</option>
+                  {filteredDoctors.map((d) => (
+                    <option key={d._id} value={d._id}>
+                      Dr. {d.firstName} {d.lastName} — {d.specialty}
+                      {d.availableSlots !== null
+                        ? ` (${d.availableSlots} slots available)`
+                        : ''}
+                    </option>
+                  ))}
+                </Select>
+                {filteredDoctors.length === 0 && searchQ && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    No doctors found for "{searchQ}"
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="date">Date</Label>
+                <Input
+                  id="date"
+                  name="date"
+                  type="date"
+                  value={bookData.date}
+                  onChange={handleBookChange}
+                  min={new Date().toISOString().split('T')[0]}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="slot">Available Slots</Label>
+                {loadingSlots ? (
+                  <p className="text-sm text-gray-500 mt-1">Loading slots...</p>
+                ) : slots.length === 0 && bookData.doctorId && bookData.date ? (
+                  <p className="text-sm text-red-500 mt-1">
+                    No slots available for this date.
+                  </p>
+                ) : (
+                  <Select
+                    id="slot"
+                    name="slot"
+                    value={bookData.queueNumber}
+                    onChange={handleBookChange}
+                    required
+                    disabled={slots.length === 0}
+                  >
+                    <option value="">Choose a time slot</option>
+                    {slots.map((s) => (
+                      <option key={s.queueNumber} value={s.queueNumber}>
+                        Token {s.tokenCode} — Est. {s.estimatedTime12h}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="reason">Reason for Visit</Label>
+                <Input
+                  id="reason"
+                  name="reason"
+                  value={bookData.reason}
+                  onChange={handleBookChange}
+                  placeholder="Brief description of concern"
+                  required
+                />
+              </div>
+              <Btn type="submit" className="w-full">
+                Book Appointment
+              </Btn>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upload Reports */}
+      <Card>
+        <CardHeader icon={Upload}>
+          <CardTitle>Upload Reports</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="doctorId">Select Doctor</Label>
-              <Select id="doctorId" name="doctorId" value={appointmentData.doctorId} onChange={handleInputChange}>
-                <option value="">Choose a doctor</option>
-                {doctors.map((doctor) => (
-                  <option key={doctor._id} value={doctor._id}>
-                    Dr. {doctor.firstName} {doctor.lastName} - {doctor.specialty}
-                  </option>
-                ))}
+          <p className="text-sm text-gray-500 mb-4">
+            Upload lab reports or images for your doctor to review before your
+            appointment.
+          </p>
+          <form onSubmit={handleUpload} className="space-y-4">
+            <div>
+              <Label htmlFor="uploadAppt">Select Appointment</Label>
+              <Select
+                id="uploadAppt"
+                value={uploadApptId}
+                onChange={(e) => setUploadApptId(e.target.value)}
+                required
+              >
+                <option value="">Choose appointment</option>
+                {allAppts
+                  .filter(
+                    (a) => a.status !== 'cancelled' && a.status !== 'completed'
+                  )
+                  .map((a) => (
+                    <option key={a._id} value={a._id}>
+                      Dr. {a.doctorId?.firstName} {a.doctorId?.lastName} —{' '}
+                      {new Date(a.date).toLocaleDateString()} {a.tokenCode}
+                    </option>
+                  ))}
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="date">Appointment Date</Label>
-              <Input id="date" name="date" type="date" value={appointmentData.date} onChange={handleInputChange}/>
+            <div>
+              <Label htmlFor="files">
+                Files (Images / PDF, max 10MB each, up to 5)
+              </Label>
+              <input
+                id="files"
+                type="file"
+                multiple
+                accept="image/*,.pdf"
+                onChange={(e) => setUploadFiles(e.target.files)}
+                className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="time">Preferred Time</Label>
-              <Select id="time" name="time" value={appointmentData.time} onChange={handleInputChange} disabled={availableSlots.length === 0}>
-                <option value="">Choose a time slot</option>
-                {availableSlots.map((slot) => (
-                  <option key={slot} value={slot}>{slot}</option>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="reason">Reason for Visit</Label>
-              <Input id="reason" name="reason" value={appointmentData.reason} onChange={handleInputChange} placeholder="Brief description of your concern"/>
-            </div>
-            <Button type="submit" className="ml-auto">Book Appointment</Button>
+            <Btn type="submit">Upload Reports</Btn>
           </form>
         </CardContent>
       </Card>
-    );
-  };
+    </div>
+  )
+
+  const renderHistory = () => (
+    <div className="space-y-6 max-w-3xl mx-auto">
+      <Card>
+        <CardHeader icon={History}>
+          <CardTitle>Appointment History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {allAppts.length === 0 ? (
+            <p className="text-gray-500 text-sm">No appointments found.</p>
+          ) : (
+            <div className="space-y-3">
+              {allAppts.map((a, i) => (
+                <div
+                  key={i}
+                  className="flex justify-between items-start py-3 border-b last:border-0"
+                >
+                  <div>
+                    <p className="text-sm font-medium">
+                      Dr. {a.doctorId?.firstName} {a.doctorId?.lastName} (
+                      {a.doctorId?.specialty})
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(a.date).toLocaleDateString('en-GB')} —{' '}
+                      {a.reason}
+                    </p>
+                    {a.reports?.length > 0 && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        {a.reports.length} report(s) attached
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right flex flex-col items-end gap-1">
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${a.status === 'completed' ? 'bg-green-100 text-green-700' : a.status === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}
+                    >
+                      {a.status}
+                    </span>
+                    {a.visitType === 'follow-up' && (
+                      <p className="text-xs text-blue-500">Follow-up</p>
+                    )}
+                    {a.isFree && <p className="text-xs text-green-600">FREE</p>}
+                    {['scheduled', 'waiting'].includes(a.status) &&
+                      new Date(a.date) >= new Date() && (
+                        <button
+                          onClick={() => handleCancelAppt(a._id)}
+                          className="text-xs text-red-500 hover:underline flex items-center gap-1"
+                        >
+                          <XCircle className="h-3 w-3" /> Cancel
+                        </button>
+                      )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader icon={FileText}>
+          <CardTitle>Medical Records</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {medRecords.length === 0 ? (
+            <p className="text-gray-500 text-sm">No medical records found.</p>
+          ) : (
+            <div className="space-y-4">
+              {medRecords.map((r, i) => (
+                <div key={i} className="py-3 border-b last:border-0">
+                  <div className="flex justify-between">
+                    <p className="text-sm font-medium">
+                      Dr. {r.doctorId?.firstName} {r.doctorId?.lastName}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(r.visitDate).toLocaleDateString('en-GB')}
+                    </p>
+                  </div>
+                  {r.diagnosis && (
+                    <p className="text-sm text-gray-700 mt-1">
+                      <strong>Diagnosis:</strong> {r.diagnosis}
+                    </p>
+                  )}
+                  {r.treatment && (
+                    <p className="text-sm text-gray-700">
+                      <strong>Treatment:</strong> {r.treatment}
+                    </p>
+                  )}
+                  {r.notes && (
+                    <p className="text-sm text-gray-500 italic">{r.notes}</p>
+                  )}
+                  {r.vitalSigns &&
+                    Object.values(r.vitalSigns).some(Boolean) && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {r.vitalSigns.bloodPressure && (
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                            BP: {r.vitalSigns.bloodPressure}
+                          </span>
+                        )}
+                        {r.vitalSigns.heartRate && (
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                            HR: {r.vitalSigns.heartRate} bpm
+                          </span>
+                        )}
+                        {r.vitalSigns.temperature && (
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                            Temp: {r.vitalSigns.temperature}°C
+                          </span>
+                        )}
+                        {r.vitalSigns.weight && (
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                            Wt: {r.vitalSigns.weight} kg
+                          </span>
+                        )}
+                      </div>
+                    )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+
+  const renderSecurity = () => (
+    <Card className="w-full max-w-lg mx-auto">
+      <CardHeader icon={Lock}>
+        <CardTitle>Change Password</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleChangePassword} className="space-y-4">
+          {[
+            { key: 'currentPassword', label: 'Current Password' },
+            { key: 'newPassword', label: 'New Password' },
+            { key: 'confirmPassword', label: 'Confirm New Password' }
+          ].map((f) => (
+            <div key={f.key}>
+              <Label>{f.label}</Label>
+              <div className="relative">
+                <Input
+                  type={
+                    showPw[f.key.replace('Password', '')] ? 'text' : 'password'
+                  }
+                  value={pwForm[f.key]}
+                  onChange={(e) =>
+                    setPwForm((p) => ({ ...p, [f.key]: e.target.value }))
+                  }
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowPw((p) => ({
+                      ...p,
+                      [f.key.replace('Password', '')]:
+                        !p[f.key.replace('Password', '')]
+                    }))
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"
+                >
+                  {showPw[f.key.replace('Password', '')] ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </div>
+          ))}
+          {pwMsg.text && <Alert type={pwMsg.type}>{pwMsg.text}</Alert>}
+          <Btn type="submit" disabled={pwLoading} className="w-full">
+            {pwLoading ? 'Updating...' : 'Change Password'}
+          </Btn>
+        </form>
+        <p className="text-xs text-gray-400 mt-4">
+          After changing your password, you will be automatically logged out and
+          redirected to the login page.
+        </p>
+      </CardContent>
+    </Card>
+  )
 
   return (
     <div className="min-h-screen bg-blue-600">
-      <header className="bg-white p-4 flex justify-between items-center">
+      <header className="bg-white p-4 flex justify-between items-center shadow">
         <div className="flex items-center space-x-2">
           <Hospital className="h-6 w-6 text-blue-600" />
           <span className="font-bold text-xl">Hospital Management System</span>
         </div>
-        <Button variant="outline" onClick={() => navigate('/')}>Sign Out</Button>
+        <button
+          onClick={() => {
+            logout()
+            navigate('/')
+          }}
+          className="text-sm text-blue-600 border border-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-50"
+        >
+          Sign Out
+        </button>
       </header>
-      <nav className="bg-blue-700 text-white p-4">
-        <ul className="flex space-x-4 justify-center">
-          <li>
-            <Button
-              variant={activeTab === 'Dashboard' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Dashboard' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Dashboard')}
-            >
-              <Home className="w-4 h-4 mr-2" />
-              Dashboard
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Profile' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Profile' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Profile')}
-            >
-              <UserCircle className="w-4 h-4 mr-2" />
-              Profile
-            </Button>
-          </li>
-          <li>
-            <Button
-              variant={activeTab === 'Appointment Booking' ? "outline" : "ghost"}
-              className={`hover:bg-white hover:text-blue-600 ${activeTab === 'Appointment Booking' ? 'bg-white text-blue-600' : 'text-white'}`}
-              onClick={() => setActiveTab('Appointment Booking')}
-
-            >
-              <CalendarIcon className="w-4 h-4 mr-2" />
-              Appointment Booking
-            </Button>
-          </li>
+      <nav className="bg-blue-700 text-white p-3">
+        <ul className="flex space-x-2 justify-center flex-wrap gap-y-2">
+          {TABS.map((t) => (
+            <li key={t.id}>
+              <button
+                onClick={() => setActiveTab(t.id)}
+                className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === t.id ? 'bg-white text-blue-600' : 'text-white hover:bg-blue-600'}`}
+              >
+                <t.icon className="w-4 h-4 mr-2" />
+                {t.label}
+              </button>
+            </li>
+          ))}
         </ul>
       </nav>
       <main className="container mx-auto px-4 py-8">
-        <h1 className="text-4xl font-bold text-white mb-8">Welcome, {patientInfo?.firstName} {patientInfo?.lastName}</h1>
+        <h1 className="text-3xl font-bold text-white mb-6">
+          Welcome, {patientInfo?.firstName} {patientInfo?.lastName}
+        </h1>
         {activeTab === 'Dashboard' && renderDashboard()}
         {activeTab === 'Profile' && renderProfile()}
-        {activeTab === 'Appointment Booking' && renderAppointmentBooking()}
+        {activeTab === 'Book' && renderBook()}
+        {activeTab === 'History' && renderHistory()}
+        {activeTab === 'Security' && renderSecurity()}
       </main>
     </div>
-  );
+  )
 }
