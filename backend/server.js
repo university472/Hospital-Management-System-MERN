@@ -208,11 +208,15 @@ mongoose
   .connect(process.env.MONGO_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB')
-    app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`))
+    // Sirf local development mein server listen karta hai
+    // Vercel par require() se load hoga, isliye app.listen() skip hoga
+    if (require.main === module) {
+      app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`))
+    }
   })
   .catch((err) => {
     console.error('❌ MongoDB connection error:', err)
     process.exit(1)
   })
 
-module.exports = app
+module.exports = app  // yeh already hai, rehne do
