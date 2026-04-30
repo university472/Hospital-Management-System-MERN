@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import api, { ApiError } from '../utils/api'
+import api from '../utils/api'
 
 // ── UI primitives ─────────────────────────────────────────────────────────────
 const Btn = ({
@@ -180,7 +180,7 @@ export default function PatientDashboard() {
 
   // Doctor search
   const [searchQ, setSearchQ] = useState('')
-  const [searchSpecialty, setSearchSpecialty] = useState('')
+  const [searchSpecialty] = useState('')
   const [filteredDoctors, setFilteredDoctors] = useState([])
   const searchTimer = useRef(null)
 

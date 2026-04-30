@@ -1,11 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState} from 'react'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem('token'))
   const [role, setRole] = useState(() => localStorage.getItem('userRole'))
-  const [loading, setLoading] = useState(false)
+  const [loading] = useState(false)
 
   const login = (newToken, newRole) => {
     localStorage.setItem('token', newToken)
